@@ -26,7 +26,7 @@ import type { Process } from '@cloudflare/sandbox';
 export { Sandbox };
 
 const CLAWDBOT_PORT = 18789;
-const STARTUP_TIMEOUT_MS = 120_000; // 2 minutes for clawdbot to start
+const STARTUP_TIMEOUT_MS = 180_000; // 2 minutes for clawdbot to start
 
 // Types
 interface ClawdbotEnv {
@@ -92,25 +92,21 @@ async function ensureClawdbotGateway(sandbox: Sandbox, env: ClawdbotEnv): Promis
   if (existingProcess) {
     console.log('Found existing Clawdbot process:', existingProcess.id, 'status:', existingProcess.status);
 
-    // Use longer timeout for "starting" processes to avoid race conditions
-    const timeout = existingProcess.status === 'starting' ? STARTUP_TIMEOUT_MS : 30_000;
-
+    // Always use full startup timeout - a process can be "running" but not ready yet
+    // (e.g., just started by another concurrent request). Using a shorter timeout
+    // causes race conditions where we kill processes that are still initializing.
     try {
-      console.log('Waiting for Clawdbot gateway on port', CLAWDBOT_PORT, 'timeout:', timeout);
-      await existingProcess.waitForPort(CLAWDBOT_PORT, { mode: 'tcp', timeout });
+      console.log('Waiting for Clawdbot gateway on port', CLAWDBOT_PORT, 'timeout:', STARTUP_TIMEOUT_MS);
+      await existingProcess.waitForPort(CLAWDBOT_PORT, { mode: 'tcp', timeout: STARTUP_TIMEOUT_MS });
       console.log('Clawdbot gateway is reachable');
       return existingProcess;
     } catch (e) {
-      if (existingProcess.status !== 'starting') {
-        console.log('Existing process not reachable, killing and restarting...');
-        try {
-          await existingProcess.kill();
-        } catch (killError) {
-          console.log('Failed to kill process:', killError);
-        }
-      } else {
-        console.log('Process still starting but port timeout - will retry');
-        throw new Error('Clawdbot is still starting, please retry');
+      // Timeout waiting for port - process is likely dead or stuck, kill and restart
+      console.log('Existing process not reachable after full timeout, killing and restarting...');
+      try {
+        await existingProcess.kill();
+      } catch (killError) {
+        console.log('Failed to kill process:', killError);
       }
     }
   }
