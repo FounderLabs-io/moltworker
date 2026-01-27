@@ -35,7 +35,7 @@ mkdir -p "$CONFIG_DIR"
 if [ -f "$BACKUP_DIR/clawdbot.json" ]; then
     echo "Found R2 backup at $BACKUP_DIR, restoring..."
     # Copy all files from backup to config dir, preserving attributes
-    cp -a "$BACKUP_DIR/." "$CONFIG_DIR/" 2>/dev/null || true
+    cp -a "$BACKUP_DIR/." "$CONFIG_DIR/"
     echo "Restored config from R2 backup"
 elif [ -d "$BACKUP_DIR" ]; then
     echo "R2 mounted at $BACKUP_DIR but no backup data found yet"
