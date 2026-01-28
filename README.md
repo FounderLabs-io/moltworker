@@ -2,6 +2,18 @@
 
 Run [Moltbot](https://molt.bot/) personal AI assistant in a [Cloudflare Sandbox](https://developers.cloudflare.com/sandbox/).
 
+> **Experimental:** This is a proof of concept demonstrating that Moltbot can run in Cloudflare Sandbox. It is not officially supported and may break without notice. Use at your own risk.
+
+## Requirements
+
+- [Workers Paid plan](https://www.cloudflare.com/plans/developer-platform/) ($5 USD/month) — required for Cloudflare Sandbox containers
+- [Anthropic API key](https://console.anthropic.com/) — for Claude access
+
+The following Cloudflare features used by this project have free tiers:
+- Cloudflare Access (authentication)
+- AI Gateway (optional, for API routing/analytics)
+- R2 Storage (optional, for persistence)
+
 ## What is Moltbot?
 
 [Moltbot](https://molt.bot/) is a personal AI assistant with a gateway architecture that connects to multiple chat platforms. Key features:
