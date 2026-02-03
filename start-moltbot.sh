@@ -1,12 +1,29 @@
 #!/bin/bash
 # Startup script for Moltbot in Cloudflare Sandbox
 # This script:
+# 0. Installs clawdbot if not present (runtime install to avoid build disk issues)
 # 1. Restores config from R2 backup if available
 # 2. Configures moltbot from environment variables
 # 3. Starts a background sync to backup config to R2
 # 4. Starts the gateway
 
 set -e
+
+# ============================================================
+# INSTALL CLAWDBOT IF NOT PRESENT
+# ============================================================
+# Runtime installation avoids Cloudflare's build disk space limitations
+CLAWDBOT_VERSION="2026.1.24-3"
+
+if ! command -v clawdbot &> /dev/null; then
+    echo "Installing clawdbot@${CLAWDBOT_VERSION}..."
+    npm install -g clawdbot@${CLAWDBOT_VERSION}
+    npm cache clean --force
+    rm -rf /root/.npm /tmp/npm-*
+    echo "Clawdbot installed: $(clawdbot --version)"
+else
+    echo "Clawdbot already installed: $(clawdbot --version)"
+fi
 
 # Check if clawdbot gateway is already running AND responsive
 # Note: CLI is still named "clawdbot" until upstream renames it
