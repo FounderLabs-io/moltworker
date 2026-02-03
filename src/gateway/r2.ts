@@ -45,6 +45,20 @@ export async function mountR2Storage(sandbox: Sandbox, env: MoltbotEnv): Promise
     return true;
   }
 
+  // Clean up the mount directory if it has stale files (from interrupted previous runs)
+  // This prevents the "directory is not empty" error from s3fs
+  try {
+    console.log('Cleaning up mount directory before mounting...');
+    const cleanupProc = await sandbox.startProcess(`rm -rf ${R2_MOUNT_PATH}/* ${R2_MOUNT_PATH}/.[!.]* 2>/dev/null; mkdir -p ${R2_MOUNT_PATH}`);
+    let attempts = 0;
+    while (cleanupProc.status === 'running' && attempts < 10) {
+      await new Promise(r => setTimeout(r, 200));
+      attempts++;
+    }
+  } catch (cleanupErr) {
+    console.log('Cleanup warning (non-fatal):', cleanupErr);
+  }
+
   try {
     console.log('Mounting R2 bucket at', R2_MOUNT_PATH);
     await sandbox.mountBucket(R2_BUCKET_NAME, R2_MOUNT_PATH, {

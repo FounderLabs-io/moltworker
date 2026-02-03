@@ -140,3 +140,52 @@ export async function triggerSync(): Promise<SyncResponse> {
     method: 'POST',
   });
 }
+
+// Session types
+export interface Session {
+  key: string;
+  kind: string;
+  updatedAt: number;
+  ageMs: number;
+  sessionId: string;
+  systemSent?: boolean;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  model?: string;
+  contextTokens?: number;
+}
+
+export interface SessionsListResponse {
+  path: string;
+  count: number;
+  activeMinutes: number | null;
+  sessions: Session[];
+  error?: string;
+}
+
+export interface SessionMessage {
+  role?: string;
+  content?: string | Array<{ type: string; text?: string }>;
+  ts?: number;
+  raw?: string;
+  parseError?: boolean;
+}
+
+export interface SessionHistoryResponse {
+  sessionKey: string;
+  sessionFile: string;
+  count: number;
+  messages: SessionMessage[];
+  error?: string;
+}
+
+export async function listSessions(activeMinutes?: number): Promise<SessionsListResponse> {
+  const params = activeMinutes ? `?active=${activeMinutes}` : '';
+  return apiRequest<SessionsListResponse>(`/sessions${params}`);
+}
+
+export async function getSessionHistory(sessionKey: string, limit = 50): Promise<SessionHistoryResponse> {
+  const encodedKey = encodeURIComponent(sessionKey);
+  return apiRequest<SessionHistoryResponse>(`/sessions/${encodedKey}/history?limit=${limit}`);
+}

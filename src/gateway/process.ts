@@ -11,26 +11,37 @@ import { mountR2Storage } from './r2';
  * @returns The process if found and running/starting, null otherwise
  */
 export async function findExistingMoltbotProcess(sandbox: Sandbox): Promise<Process | null> {
-  try {
-    const processes = await sandbox.listProcesses();
-    for (const proc of processes) {
-      // Only match the gateway process, not CLI commands like "clawdbot devices list"
-      // Note: CLI is still named "clawdbot" until upstream renames it
-      const isGatewayProcess = 
-        proc.command.includes('start-moltbot.sh') ||
-        proc.command.includes('clawdbot gateway');
-      const isCliCommand = 
-        proc.command.includes('clawdbot devices') ||
-        proc.command.includes('clawdbot --version');
-      
-      if (isGatewayProcess && !isCliCommand) {
-        if (proc.status === 'starting' || proc.status === 'running') {
-          return proc;
+  // Retry listing processes to handle DO reset errors
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const processes = await sandbox.listProcesses();
+      for (const proc of processes) {
+        // Only match the gateway process, not CLI commands like "clawdbot devices list"
+        // Note: CLI is still named "clawdbot" until upstream renames it
+        const isGatewayProcess = 
+          proc.command.includes('start-moltbot.sh') ||
+          proc.command.includes('clawdbot gateway');
+        const isCliCommand = 
+          proc.command.includes('clawdbot devices') ||
+          proc.command.includes('clawdbot --version');
+        
+        if (isGatewayProcess && !isCliCommand) {
+          if (proc.status === 'starting' || proc.status === 'running') {
+            return proc;
+          }
         }
       }
+      return null; // No matching process found
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      if ((errMsg.includes('code was updated') || errMsg.includes('Durable Object reset')) && attempt < 3) {
+        console.log(`[Gateway] DO reset during listProcesses (attempt ${attempt}/3), retrying...`);
+        await new Promise(r => setTimeout(r, 1000 * attempt));
+        continue;
+      }
+      console.log('Could not list processes:', e);
+      return null;
     }
-  } catch (e) {
-    console.log('Could not list processes:', e);
   }
   return null;
 }
@@ -50,7 +61,12 @@ export async function findExistingMoltbotProcess(sandbox: Sandbox): Promise<Proc
 export async function ensureMoltbotGateway(sandbox: Sandbox, env: MoltbotEnv): Promise<Process> {
   // Mount R2 storage for persistent data (non-blocking if not configured)
   // R2 is used as a backup - the startup script will restore from it on boot
-  await mountR2Storage(sandbox, env);
+  // Wrap in try/catch to prevent R2 issues from blocking gateway startup
+  try {
+    await mountR2Storage(sandbox, env);
+  } catch (r2Error) {
+    console.log('[R2] Mount failed, continuing without persistent storage:', r2Error);
+  }
 
   // Check if Moltbot is already running or starting
   const existingProcess = await findExistingMoltbotProcess(sandbox);
@@ -76,7 +92,7 @@ export async function ensureMoltbotGateway(sandbox: Sandbox, env: MoltbotEnv): P
     }
   }
 
-  // Start a new Moltbot gateway
+  // Start a new Moltbot gateway with retry logic to handle DO resets
   console.log('Starting new Moltbot gateway...');
   const envVars = buildEnvVars(env);
   const command = '/usr/local/bin/start-moltbot.sh';
@@ -85,14 +101,39 @@ export async function ensureMoltbotGateway(sandbox: Sandbox, env: MoltbotEnv): P
   console.log('Environment vars being passed:', Object.keys(envVars));
 
   let process: Process;
-  try {
-    process = await sandbox.startProcess(command, {
-      env: Object.keys(envVars).length > 0 ? envVars : undefined,
-    });
-    console.log('Process started with id:', process.id, 'status:', process.status);
-  } catch (startErr) {
-    console.error('Failed to start process:', startErr);
-    throw startErr;
+  let lastError: Error | null = null;
+  
+  // Retry up to 5 times with exponential backoff to handle DO resets
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try {
+      console.log(`[Gateway] Starting process (attempt ${attempt}/5)...`);
+      process = await sandbox.startProcess(command, {
+        env: Object.keys(envVars).length > 0 ? envVars : undefined,
+      });
+      console.log('Process started with id:', process.id, 'status:', process.status);
+      lastError = null;
+      break; // Success!
+    } catch (startErr) {
+      lastError = startErr instanceof Error ? startErr : new Error(String(startErr));
+      const errMsg = lastError.message;
+      
+      // If it's a DO reset error, retry after a delay
+      if (errMsg.includes('code was updated') || errMsg.includes('Durable Object reset')) {
+        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 8000); // 1s, 2s, 4s, 8s, 8s
+        console.log(`[Gateway] DO reset detected, waiting ${delay}ms before retry...`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      
+      // For other errors, don't retry
+      console.error('Failed to start process:', startErr);
+      throw startErr;
+    }
+  }
+  
+  if (lastError) {
+    console.error('[Gateway] All retry attempts failed:', lastError);
+    throw lastError;
   }
 
   // Wait for the gateway to be ready

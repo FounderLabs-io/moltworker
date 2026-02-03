@@ -240,6 +240,115 @@ adminApi.post('/storage/sync', async (c) => {
   }
 });
 
+// GET /api/admin/sessions - List all sessions with metadata
+adminApi.get('/sessions', async (c) => {
+  const sandbox = c.get('sandbox');
+  const activeMinutes = c.req.query('active');
+
+  try {
+    // Ensure moltbot is running first
+    await ensureMoltbotGateway(sandbox, c.env);
+
+    // Run moltbot CLI to list sessions
+    const activeArg = activeMinutes ? ` --active ${activeMinutes}` : '';
+    const proc = await sandbox.startProcess(`clawdbot sessions --json${activeArg} --url ws://localhost:18789`);
+    await waitForProcess(proc, CLI_TIMEOUT_MS);
+
+    const logs = await proc.getLogs();
+    const stdout = logs.stdout || '';
+    const stderr = logs.stderr || '';
+
+    try {
+      const jsonMatch = stdout.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const data = JSON.parse(jsonMatch[0]);
+        return c.json(data);
+      }
+      return c.json({ sessions: [], raw: stdout, stderr });
+    } catch {
+      return c.json({ sessions: [], raw: stdout, stderr, parseError: 'Failed to parse CLI output' });
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return c.json({ error: errorMessage }, 500);
+  }
+});
+
+// GET /api/admin/sessions/:sessionKey/history - Get message history for a session
+adminApi.get('/sessions/:sessionKey/history', async (c) => {
+  const sandbox = c.get('sandbox');
+  const sessionKey = c.req.param('sessionKey');
+  const limit = c.req.query('limit') || '50';
+
+  if (!sessionKey) {
+    return c.json({ error: 'sessionKey is required' }, 400);
+  }
+
+  try {
+    await ensureMoltbotGateway(sandbox, c.env);
+
+    // First get the session info to find the sessionFile path
+    const listProc = await sandbox.startProcess('clawdbot sessions --json --url ws://localhost:18789');
+    await waitForProcess(listProc, CLI_TIMEOUT_MS);
+    
+    const listLogs = await listProc.getLogs();
+    const stdout = listLogs.stdout || '';
+
+    // Parse to find the session file path
+    let sessionFile: string | null = null;
+    try {
+      const jsonMatch = stdout.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const data = JSON.parse(jsonMatch[0]);
+        // Look for the session in sessions.json directly
+        // The sessionKey is like "agent:main:telegram:123456"
+        // We need to read the sessions.json file to get the sessionFile
+        
+        // Read sessions store to find the file
+        const catProc = await sandbox.startProcess(`cat "${data.path}" 2>/dev/null`);
+        await waitForProcess(catProc, 5000);
+        const catLogs = await catProc.getLogs();
+        const sessionsData = JSON.parse(catLogs.stdout || '{}');
+        
+        if (sessionsData[sessionKey]) {
+          sessionFile = sessionsData[sessionKey].sessionFile;
+        }
+      }
+    } catch (e) {
+      console.error('Error finding session file:', e);
+    }
+
+    if (!sessionFile) {
+      return c.json({ error: 'Session not found', sessionKey }, 404);
+    }
+
+    // Read the last N lines from the jsonl file
+    const tailProc = await sandbox.startProcess(`tail -n ${limit} "${sessionFile}" 2>/dev/null`);
+    await waitForProcess(tailProc, 10000);
+    const tailLogs = await tailProc.getLogs();
+    const lines = (tailLogs.stdout || '').trim().split('\n').filter(Boolean);
+
+    // Parse each line as JSON
+    const messages = lines.map(line => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return { raw: line, parseError: true };
+      }
+    });
+
+    return c.json({
+      sessionKey,
+      sessionFile,
+      count: messages.length,
+      messages,
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return c.json({ error: errorMessage }, 500);
+  }
+});
+
 // POST /api/admin/gateway/restart - Kill the current gateway and start a new one
 adminApi.post('/gateway/restart', async (c) => {
   const sandbox = c.get('sandbox');

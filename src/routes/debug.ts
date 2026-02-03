@@ -391,4 +391,74 @@ debug.get('/container-config', async (c) => {
   }
 });
 
+// GET /debug/network-test - Test if container can make external HTTP requests
+debug.get('/network-test', async (c) => {
+  const sandbox = c.get('sandbox');
+  const testUrl = c.req.query('url') || 'https://httpbin.org/ip';
+  
+  try {
+    console.log('[DEBUG] Running network test to:', testUrl);
+    const proc = await sandbox.startProcess(`curl -s --max-time 10 "${testUrl}"`);
+    
+    // Wait for completion
+    let attempts = 0;
+    while (proc.status === 'running' && attempts < 30) {
+      await new Promise(r => setTimeout(r, 500));
+      attempts++;
+    }
+    
+    const logs = await proc.getLogs();
+    console.log('[DEBUG] Network test stdout:', logs.stdout?.slice(0, 500));
+    console.log('[DEBUG] Network test stderr:', logs.stderr?.slice(0, 500));
+    
+    return c.json({
+      url: testUrl,
+      stdout: logs.stdout || '',
+      stderr: logs.stderr || '',
+      status: proc.status,
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('[DEBUG] Network test failed:', errorMessage);
+    return c.json({ error: errorMessage }, 500);
+  }
+});
+
+// GET /debug/ai-test - Test calling the AI endpoint from inside the container
+debug.get('/ai-test', async (c) => {
+  const sandbox = c.get('sandbox');
+  const workerUrl = c.env.WORKER_URL || 'https://instantagent-sandbox.nate-f38.workers.dev';
+  const aiUrl = `${workerUrl}/ai/v1/chat/completions`;
+  
+  try {
+    console.log('[DEBUG] Testing AI endpoint from container:', aiUrl);
+    const curlCmd = `curl -s --max-time 15 -X POST "${aiUrl}" -H "Content-Type: application/json" -d '{"model":"llama-3.1-8b","messages":[{"role":"user","content":"hi"}]}'`;
+    console.log('[DEBUG] Command:', curlCmd);
+    
+    const proc = await sandbox.startProcess(curlCmd);
+    
+    // Wait for completion
+    let attempts = 0;
+    while (proc.status === 'running' && attempts < 40) {
+      await new Promise(r => setTimeout(r, 500));
+      attempts++;
+    }
+    
+    const logs = await proc.getLogs();
+    console.log('[DEBUG] AI test stdout:', logs.stdout?.slice(0, 1000));
+    console.log('[DEBUG] AI test stderr:', logs.stderr?.slice(0, 500));
+    
+    return c.json({
+      aiUrl,
+      stdout: logs.stdout || '',
+      stderr: logs.stderr || '',
+      status: proc.status,
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('[DEBUG] AI test failed:', errorMessage);
+    return c.json({ error: errorMessage }, 500);
+  }
+});
+
 export { debug };

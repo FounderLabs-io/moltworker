@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "moltbot-sandbox",
+  "name": "instantagent-sandbox",
   "main": "src/index.ts",
   "compatibility_date": "2025-05-06",
   "compatibility_flags": ["nodejs_compat"],
@@ -59,7 +59,7 @@
   "r2_buckets": [
     {
       "binding": "MOLTBOT_BUCKET",
-      "bucket_name": "moltbot-data",
+      "bucket_name": "instantagent-data",
     },
   ],
   // Cron trigger to sync moltbot data to R2 every 5 minutes
@@ -69,6 +69,16 @@
   // Browser Rendering binding for CDP shim
   "browser": {
     "binding": "BROWSER",
+  },
+  // Workers AI binding for local LLM inference (free tier for users)
+  "ai": {
+    "binding": "AI",
+  },
+  // Environment variables
+  "vars": {
+    "WORKER_URL": "https://instantagent-sandbox.nate-f38.workers.dev",
+    "DEV_MODE": "true",
+    "DEBUG_ROUTES": "true",
   },
   // Note: CF_ACCOUNT_ID should be set via `wrangler secret put CF_ACCOUNT_ID`
   // Secrets to configure via `wrangler secret put`:

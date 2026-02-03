@@ -21,13 +21,14 @@
  */
 
 import { Hono } from 'hono';
+import { cors } from 'hono/cors';
 import { getSandbox, Sandbox, type SandboxOptions } from '@cloudflare/sandbox';
 
 import type { AppEnv, MoltbotEnv } from './types';
 import { MOLTBOT_PORT } from './config';
 import { createAccessMiddleware } from './auth';
 import { ensureMoltbotGateway, findExistingMoltbotProcess, syncToR2 } from './gateway';
-import { publicRoutes, api, adminUi, debug, cdp } from './routes';
+import { publicRoutes, api, adminUi, debug, cdp, ai } from './routes';
 import loadingPageHtml from './assets/loading.html';
 import configErrorHtml from './assets/config-error.html';
 
@@ -67,16 +68,16 @@ function validateRequiredEnv(env: MoltbotEnv): string[] {
     missing.push('CF_ACCESS_AUD');
   }
 
-  // Check for AI Gateway or direct Anthropic configuration
+  // Check for AI configuration - Workers AI (via binding) is always available as fallback
+  // Priority: AI Gateway > Direct provider keys > Workers AI (default)
   if (env.AI_GATEWAY_API_KEY) {
     // AI Gateway requires both API key and base URL
     if (!env.AI_GATEWAY_BASE_URL) {
       missing.push('AI_GATEWAY_BASE_URL (required when using AI_GATEWAY_API_KEY)');
     }
-  } else if (!env.ANTHROPIC_API_KEY) {
-    // Direct Anthropic access requires API key
-    missing.push('ANTHROPIC_API_KEY or AI_GATEWAY_API_KEY');
   }
+  // Note: If no API keys are set, Workers AI will be used as the default LLM provider
+  // This is configured in start-moltbot.sh which sets OPENAI_BASE_URL to point to /ai/v1
 
   return missing;
 }
@@ -121,6 +122,16 @@ app.use('*', async (c, next) => {
   await next();
 });
 
+// Middleware: CORS for cross-origin requests from dashboard
+app.use('*', cors({
+  origin: ['https://instantagent.app', 'https://instantagent.pages.dev'],
+  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization'],
+  exposeHeaders: ['Content-Length'],
+  credentials: true,
+  maxAge: 86400,
+}));
+
 // Middleware: Initialize sandbox for all requests
 app.use('*', async (c, next) => {
   const options = buildSandboxOptions(c.env);
@@ -139,6 +150,10 @@ app.route('/', publicRoutes);
 
 // Mount CDP routes (uses shared secret auth via query param, not CF Access)
 app.route('/cdp', cdp);
+
+// Mount Workers AI routes (no auth required - used by container for LLM inference)
+// Provides OpenAI-compatible API at /ai/v1/chat/completions
+app.route('/ai', ai);
 
 // =============================================================================
 // PROTECTED ROUTES: Cloudflare Access authentication required
@@ -249,11 +264,12 @@ app.all('*', async (c) => {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
     let hint = 'Check worker logs with: wrangler tail';
-    if (!c.env.ANTHROPIC_API_KEY) {
-      hint = 'ANTHROPIC_API_KEY is not set. Run: wrangler secret put ANTHROPIC_API_KEY';
-    } else if (errorMessage.includes('heap out of memory') || errorMessage.includes('OOM')) {
+    if (errorMessage.includes('heap out of memory') || errorMessage.includes('OOM')) {
       hint = 'Gateway ran out of memory. Try again or check for memory leaks.';
+    } else if (errorMessage.includes('code was updated')) {
+      hint = 'Container restarting due to code update. Try again in a moment.';
     }
+    // Note: Workers AI is the default LLM provider, no API keys required
 
     return c.json({
       error: 'Moltbot gateway failed to start',
@@ -407,3 +423,4 @@ export default {
   fetch: app.fetch,
   scheduled,
 };
+// Build timestamp: 20260202154952

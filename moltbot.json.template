@@ -6,6 +6,13 @@
   },
   "gateway": {
     "port": 18789,
-    "mode": "local"
+    "mode": "local",
+    "http": {
+      "endpoints": {
+        "chatCompletions": {
+          "enabled": true
+        }
+      }
+    }
   }
 }

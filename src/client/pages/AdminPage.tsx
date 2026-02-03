@@ -12,6 +12,7 @@ import {
   type DeviceListResponse,
   type StorageStatusResponse,
 } from '../api'
+import SessionsPanel from '../components/SessionsPanel'
 import './AdminPage.css'
 
 // Small inline spinner for buttons
@@ -234,6 +235,13 @@ export default function AdminPage() {
           Restart the gateway to apply configuration changes or recover from errors.
           All connected clients will be temporarily disconnected.
         </p>
+      </section>
+
+      <section className="devices-section sessions-section">
+        <div className="section-header">
+          <h2>Conversation Sessions</h2>
+        </div>
+        <SessionsPanel />
       </section>
 
       {loading ? (
