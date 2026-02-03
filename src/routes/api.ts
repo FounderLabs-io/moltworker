@@ -23,6 +23,20 @@ const adminApi = new Hono<AppEnv>();
 // Middleware: Verify Cloudflare Access JWT for all admin routes
 adminApi.use('*', createAccessMiddleware({ type: 'json' }));
 
+// GET /api/admin/config - Get gateway configuration (including token for WebSocket auth)
+// This endpoint provides the gateway token to the UI after CF Access authentication
+adminApi.get('/config', async (c) => {
+  return c.json({
+    gatewayToken: c.env.MOLTBOT_GATEWAY_TOKEN || null,
+    workerUrl: c.env.WORKER_URL || null,
+    devMode: c.env.DEV_MODE === 'true',
+    // Don't expose sensitive keys, just indicate if they're configured
+    hasAnthropicKey: !!c.env.ANTHROPIC_API_KEY,
+    hasOpenAIKey: !!c.env.OPENAI_API_KEY,
+    hasAIGateway: !!c.env.AI_GATEWAY_API_KEY,
+  });
+});
+
 // GET /api/admin/devices - List pending and paired devices
 adminApi.get('/devices', async (c) => {
   const sandbox = c.get('sandbox');
