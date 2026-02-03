@@ -9,6 +9,12 @@ import type { MoltbotEnv } from '../types';
 export function buildEnvVars(env: MoltbotEnv): Record<string, string> {
   const envVars: Record<string, string> = {};
 
+  // DEBUG: Log what we received
+  console.log('[buildEnvVars] Input env keys:', Object.keys(env || {}));
+  console.log('[buildEnvVars] ANTHROPIC_API_KEY exists:', !!env?.ANTHROPIC_API_KEY);
+  console.log('[buildEnvVars] ANTHROPIC_API_KEY length:', env?.ANTHROPIC_API_KEY?.length || 0);
+  console.log('[buildEnvVars] WORKER_URL:', env?.WORKER_URL);
+
   // Normalize the base URL by removing trailing slashes
   const normalizedBaseUrl = env.AI_GATEWAY_BASE_URL?.replace(/\/+$/, '');
   const isOpenAIGateway = normalizedBaseUrl?.endsWith('/openai');
@@ -50,6 +56,10 @@ export function buildEnvVars(env: MoltbotEnv): Record<string, string> {
     envVars.ANTHROPIC_BASE_URL = env.ANTHROPIC_BASE_URL;
   }
 
+  // DEBUG: Log what we're passing
+  console.log('[buildEnvVars] hasExternalApiKey:', hasExternalApiKey);
+  console.log('[buildEnvVars] envVars.ANTHROPIC_API_KEY exists:', !!envVars.ANTHROPIC_API_KEY);
+
   // If no external API keys configured, use Workers AI as the default
   // The container will call back to the worker's /ai/v1 endpoint
   if (!hasExternalApiKey && env.WORKER_URL) {
@@ -57,6 +67,8 @@ export function buildEnvVars(env: MoltbotEnv): Record<string, string> {
     envVars.USE_WORKERS_AI = 'true';
     envVars.OPENAI_API_KEY = 'workers-ai'; // Placeholder, not actually used
     envVars.OPENAI_BASE_URL = `${env.WORKER_URL}/ai/v1`;
+  } else {
+    console.log('[ENV] Using external API key, NOT Workers AI');
   }
   // Map MOLTBOT_GATEWAY_TOKEN to CLAWDBOT_GATEWAY_TOKEN (container expects this name)
   if (env.MOLTBOT_GATEWAY_TOKEN) envVars.CLAWDBOT_GATEWAY_TOKEN = env.MOLTBOT_GATEWAY_TOKEN;

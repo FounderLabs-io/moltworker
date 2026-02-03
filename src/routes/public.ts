@@ -31,6 +31,38 @@ publicRoutes.get('/logo-small.png', (c) => {
   return c.env.ASSETS.fetch(c.req.raw);
 });
 
+// GET /api/env-check - Debug endpoint to check if env vars are set (no sensitive data)
+publicRoutes.get('/api/env-check', (c) => {
+  // Inline the buildEnvVars logic to check what container would receive
+  const normalizedBaseUrl = c.env.AI_GATEWAY_BASE_URL?.replace(/\/+$/, '');
+  const isOpenAIGateway = normalizedBaseUrl?.endsWith('/openai');
+  let hasExternalApiKey = false;
+  
+  if (c.env.AI_GATEWAY_API_KEY) hasExternalApiKey = true;
+  if (c.env.ANTHROPIC_API_KEY) hasExternalApiKey = true;
+  if (c.env.OPENAI_API_KEY) hasExternalApiKey = true;
+  
+  const wouldUseWorkersAI = !hasExternalApiKey && !!c.env.WORKER_URL;
+  
+  return c.json({
+    worker_env: {
+      has_anthropic_key: !!c.env.ANTHROPIC_API_KEY,
+      anthropic_key_length: c.env.ANTHROPIC_API_KEY?.length || 0,
+      has_openai_key: !!c.env.OPENAI_API_KEY,
+      has_ai_gateway_key: !!c.env.AI_GATEWAY_API_KEY,
+      ai_gateway_base_url: c.env.AI_GATEWAY_BASE_URL,
+      has_gateway_token: !!c.env.MOLTBOT_GATEWAY_TOKEN,
+      worker_url: c.env.WORKER_URL,
+      dev_mode: c.env.DEV_MODE,
+    },
+    container_would_receive: {
+      has_external_api_key: hasExternalApiKey,
+      would_use_workers_ai: wouldUseWorkersAI,
+      is_openai_gateway: isOpenAIGateway,
+    }
+  });
+});
+
 // GET /api/status - Public health check for gateway status (no auth required)
 publicRoutes.get('/api/status', async (c) => {
   const sandbox = c.get('sandbox');
@@ -110,36 +142,8 @@ publicRoutes.post('/api/restart', async (c) => {
 });
 
 // =============================================================================
-// FALLBACK: Forward /v1/* to AI routes (for container callbacks that miss /ai prefix)
-// This handles cases where the OpenAI SDK strips or ignores the /ai prefix in baseUrl
-// =============================================================================
-
-// Forward /v1/chat/completions to /ai/v1/chat/completions
-publicRoutes.post('/v1/chat/completions', async (c) => {
-  console.log('[PUBLIC] Forwarding /v1/chat/completions to AI routes');
-  // Rewrite the path and forward to AI routes
-  const newUrl = new URL(c.req.url);
-  newUrl.pathname = '/v1/chat/completions';
-  const newRequest = new Request(newUrl.toString(), c.req.raw);
-  return ai.fetch(newRequest, c.env, c.executionCtx);
-});
-
-// Forward /v1/responses to /ai/v1/responses
-publicRoutes.post('/v1/responses', async (c) => {
-  console.log('[PUBLIC] Forwarding /v1/responses to AI routes');
-  const newUrl = new URL(c.req.url);
-  newUrl.pathname = '/v1/responses';
-  const newRequest = new Request(newUrl.toString(), c.req.raw);
-  return ai.fetch(newRequest, c.env, c.executionCtx);
-});
-
-// Forward /v1/models to /ai/v1/models
-publicRoutes.get('/v1/models', async (c) => {
-  console.log('[PUBLIC] Forwarding /v1/models to AI routes');
-  const newUrl = new URL(c.req.url);
-  newUrl.pathname = '/v1/models';
-  const newRequest = new Request(newUrl.toString(), c.req.raw);
-  return ai.fetch(newRequest, c.env, c.executionCtx);
-});
+// NOTE: /v1/* routes are NOT forwarded to AI routes here.
+// They fall through to the main app's catch-all handler which proxies to the container gateway.
+// Container Workers AI callbacks use /ai/v1/* prefix explicitly.
 
 export { publicRoutes };
